@@ -34,11 +34,11 @@ dependencies = [
     "librosa",
     "numpy",
     "scipy",
-    "pydantic>=2",
+    "pydantic>=2.6",
     "tqdm",
-    "fastapi",
-    "uvicorn",
-    "websockets",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "websockets>=12",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +50,7 @@ finetune = [
 ]
 dev = [
     "pytest",
-    "httpx",
+    "httpx>=0.28",
 ]
 
 [project.scripts]

@@ -3651,7 +3651,7 @@ wheels = [
 
 [[package]]
 name = "turkish-tts"
-version = "0.1.0"
+version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "einops" },
@@ -3693,12 +3693,12 @@ requires-dist = [
     { name = "argbind", marker = "extra == 'finetune'" },
     { name = "datasets", marker = "extra == 'finetune'", specifier = ">=3,<4" },
     { name = "einops" },
-    { name = "fastapi" },
-    { name = "httpx", marker = "extra == 'dev'" },
+    { name = "fastapi", specifier = ">=0.110" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28" },
     { name = "huggingface-hub" },
     { name = "librosa" },
     { name = "numpy" },
-    { name = "pydantic", specifier = ">=2" },
+    { name = "pydantic", specifier = ">=2.6" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pyyaml", marker = "extra == 'finetune'" },
     { name = "safetensors" },
@@ -3708,8 +3708,8 @@ requires-dist = [
     { name = "torchaudio", specifier = ">=2.5.0" },
     { name = "tqdm" },
     { name = "transformers", specifier = ">=4.36.2" },
-    { name = "uvicorn" },
-    { name = "websockets" },
+    { name = "uvicorn", specifier = ">=0.27" },
+    { name = "websockets", specifier = ">=12" },
 ]
 provides-extras = ["finetune", "dev"]
 

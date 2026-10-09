@@ -40,6 +40,22 @@ def doc_text(name: str) -> str:
     return (REPO / name).read_text(encoding="utf-8")
 
 
+def served_paths() -> set:
+    """Returns every path the app serves, descending into included routers."""
+    paths = set()
+    pending = list(app.routes)
+    while pending:
+        route = pending.pop()
+        path = getattr(route, "path", None)
+        if path:
+            paths.add(path)
+        pending.extend(getattr(route, "routes", None) or [])
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            pending.extend(included.routes)
+    return paths
+
+
 @pytest.mark.parametrize("name", DOCS)
 def test_relative_links_resolve(name):
     """Every relative link in the docs points at a file that exists."""
@@ -106,7 +122,7 @@ def test_documented_config_defaults_match(monkeypatch):
 
 def test_documented_endpoints_exist():
     """Every endpoint path named in the docs is served by the app."""
-    served = {route.path for route in app.routes}
+    served = served_paths()
     missing = []
     for name in DOCS:
         for path in set(ENDPOINT.findall(doc_text(name))):
@@ -120,9 +136,9 @@ def test_readme_documents_every_route():
     """Every public route is mentioned in the README."""
     readme = doc_text("README.md")
     public = {
-        route.path
-        for route in app.routes
-        if not route.path.startswith(("/openapi", "/docs", "/redoc")) and route.path != "/"
+        path
+        for path in served_paths()
+        if not path.startswith(("/openapi", "/docs", "/redoc")) and path != "/"
     }
     undocumented = [path for path in public if f"`{path}`" not in readme and path not in readme]
 
