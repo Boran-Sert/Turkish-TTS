@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/turkish-tts/"><img alt="PyPI" src="https://img.shields.io/pypi/v/turkish-tts?color=3b82f6&label=pypi"></a>
+  <a href="https://pypi.org/project/turkish-tts/"><img alt="PyPI" src="https://img.shields.io/pypi/v/turkish-tts?color=3b82f6&label=pypi&cacheSeconds=3600"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3b82f6">
-  <a href="https://github.com/Boran-Sert/Turkish-TTS/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Boran-Sert/Turkish-TTS/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Boran-Sert/Turkish-TTS/actions/workflows/release.yml"><img alt="CI" src="https://github.com/Boran-Sert/Turkish-TTS/actions/workflows/release.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="Lisans" src="https://img.shields.io/badge/lisans-Apache--2.0-22d3ee"></a>
 </p>
 
