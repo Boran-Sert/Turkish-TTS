@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "turkish-tts"
-version = "0.0.0"
+version = "1.0.0"
 description = "Türkçe için VoxCPM2 tabanlı metin-konuşma servisi ve kütüphanesi"
 readme = "README.md"
 requires-python = ">=3.10"
