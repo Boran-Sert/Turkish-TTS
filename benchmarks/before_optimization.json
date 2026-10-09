@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-10-08T17:17:11+00:00",
+  "url": "ws://127.0.0.1:8000/v1/tts/stream",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "peak_vram_mb": 7284,
+  "repeats": 1,
+  "config": {
+    "inference_timesteps": 8,
+    "cfg_value": 2.8,
+    "chunk_duration_ms": 1200,
+    "min_chars": 30,
+    "enable_lookbehind": true,
+    "use_torch_compile": true,
+    "voxcpm_gpu_ids": [
+      0
+    ]
+  },
+  "runs": [
+    {
+      "concurrency": 1,
+      "requests": 3,
+      "wall_seconds": 39.189,
+      "audio_seconds_total": 17.76,
+      "throughput_audio_per_wall": 0.453,
+      "ttfb_ms": {
+        "p50": 2750.206,
+        "p95": 2775.798,
+        "mean": 2723.857
+      },
+      "rtf": {
+        "p50": 2.102,
+        "p95": 2.261,
+        "mean": 2.149
+      }
+    },
+    {
+      "concurrency": 2,
+      "requests": 6,
+      "wall_seconds": 76.584,
+      "audio_seconds_total": 36.64,
+      "throughput_audio_per_wall": 0.478,
+      "ttfb_ms": {
+        "p50": 9051.644,
+        "p95": 26947.506,
+        "mean": 11046.653
+      },
+      "rtf": {
+        "p50": 3.468,
+        "p95": 4.436,
+        "mean": 3.388
+      }
+    }
+  ]
+}

@@ -1,255 +1,311 @@
-# Trendyol TTS & VoxCPM Entegrasyon ve Geliştirici Kılavuzu (Developer Guide)
+# Entegrasyon Kılavuzu
 
-Bu belge, oluşturulan TTS (Metinden Sese) akışkan (streaming) altyapısının dış sistemler (Backend, .NET Middleware, Java, iOS, Android) tarafından nasıl çağrılacağını, veri çıktı formatlarını ve hata yönetimi prosedürlerini içerir.
+Turkish-TTS servisinin HTTP ve WebSocket yüzeyi. Kurulum ve yapılandırma için
+[README.md](README.md).
 
-## 1. Bağlantı ve İletişim Protokolü
+Bütün ses çıktısı **tek kanal, 16 bit işaretli, little-endian PCM, 48000 Hz**. İkili
+çerçeveler ham PCM taşır, başlık içermez.
 
-Sistem, **Multiplexed WebSocket** protokolü üzerinden iletişim kurar. Bu protokol sayesinde kontrol olayları (metadata/error) ile ağır ses verisi (binary audio) birbirinden ayrılmıştır.
+## Hangi yolu seçmeli
 
-```mermaid
-sequenceDiagram
-    participant C as Client (App / Middleware)
-    participant S as Server (TTS WebSocket)
-    
-    C->>S: Bağlantı İsteği (ws://...)
-    S-->>C: Bağlantı Kabul Edildi
-    
-    C->>S: Text Frame (JSON: {"text": "Merhaba"})
-    S-->>C: Text Frame (JSON: {"event": "stream_start"})
-    
-    Note over S,C: Sentezlenen ses anında akmaya başlar
-    S-->>C: Binary Frame (PCM16 Chunk 1)
-    S-->>C: Binary Frame (PCM16 Chunk 2)
-    S-->>C: Binary Frame (PCM16 Chunk 3)
-    
-    S-->>C: Text Frame (JSON: {"event": "stream_end"})
+| Durum | Yol |
+|---|---|
+| Dosya üret, gecikme önemsiz | `POST /v1/tts` |
+| Tarayıcıda veya `curl` ile çalarken akış | `POST /v1/tts/stream` |
+| En düşük gecikme, cümle olayları, tek bağlantıda çok istek | `WS /v1/tts/stream` |
+
+## HTTP
+
+### POST /v1/tts
+
+```http
+POST /v1/tts
+Content-Type: application/json
+
+{"text": "Merhaba, bugün nasılsınız?", "voice": "kadın"}
 ```
 
-* **WebSocket URI:** `ws://<sunucu_ip>:8000/ws/tts`
-* **Bağlantı Tipi:** Çift Yönlü (Bidirectional) Asenkron WebSocket
+Tam bir WAV dosyası döner (`Content-Type: audio/wav`). Metin 1-5000 karakter olmalı.
+`voice` isteğe bağlıdır; verilmezse modelin varsayılan sesi kullanılır. Bilinmeyen bir
+ses adı `422` döner ve hata mesajı mevcut sesleri listeler.
 
-## 2. Sistemi Çağırma (İstek Yapma)
+### GET /v1/voices
 
-İstemci (Client), WebSocket bağlantısını kurduktan sonra sentezlenmesini istediği metni bir `JSON` metin çerçevesi (Text Frame) olarak göndererek akışı başlatır:
+Klonlama için kullanılabilir sesleri döner:
 
-**Örnek İstek (Text Frame):**
 ```json
-{
-  "text": "Merhaba, bu gelişmiş sistem çoklu cihaz desteklidir."
-}
+{"voices": [{"name": "kadın", "has_transcript": true}]}
 ```
 
-## 3. Çıktı Formatları ve Olay Yönetimi
+Sesler sunucudaki `voices_dir` dizininden okunur; bir ses eklemek için o dizine bir wav
+koymak yeterlidir.
 
-Sistem çağrıldıktan sonra, istemciye iki farklı formatta çerçeve (frame) gönderilir. İstemcinin (Middleware'in) bu iki frame türünü ayıklaması (parse) gerekir.
+### POST /v1/tts/stream
 
-### A. Metin Çerçeveleri (Text Frames - JSON)
-Sistemin durumunu, metadata bilgisini veya oluşan hataları bildirir.
+Aynı gövde. Önce 44 baytlık WAV başlığı, ardından üretildikçe PCM çerçeveleri gönderilir.
+Başlıktaki uzunluk alanları bilinmediği için azami değerde bırakılır; dosya olarak
+kaydedecekseniz `POST /v1/tts` kullanın.
 
-**1. Akış Başlangıcı (`stream_start`):**
-Bağlantı kurulup metin alındığında, sesin hangi formatta ve hangi motordan (GPU/CPU) geleceğini bildirir.
+### GET /health ve GET /ready
+
+`/health` her zaman `200 {"status":"ok"}` döner; model yüklenirken de cevap verir, canlılık
+yoklaması için bunu kullanın.
+
+`/ready` havuz hazır olana kadar `503` döner:
+
 ```json
-{
-  "event": "stream_start",
-  "engine": "VoxCPM-Pool", // veya "Piper-Fallback"
-  "format": "pcm16_le",
-  "sample_rate": 24000
-}
+{"ready": true, "pool_size": 2, "idle": 1}
 ```
 
-**2. Cümle Tamamlanması (`sentence_complete`):**
-Uzun metinler parça parça işlenirken, hangi cümlenin sesinin gönderiminin bittiğini bildirir. Animasyon senkronizasyonu (dudak oynatma vb.) için kullanılır.
+Kubernetes'te `/health` livenessProbe, `/ready` readinessProbe olmalı. Model yüklenmesi
+dakikalar sürebileceği için readinessProbe'a geniş bir `initialDelaySeconds` verin.
+
+### HTTP durum kodları
+
+| Kod | Anlamı | Ne yapmalı |
+|---|---|---|
+| `200` | Ses döndü | - |
+| `422` | Gövde geçersiz (boş metin, 5000 karakter aşımı) | İsteği düzeltin |
+| `503` | Bütün modeller meşgul veya havuz henüz hazır değil | Geri çekilip tekrar deneyin |
+| `500` | Sentez hata verdi | Sunucu loglarına bakın |
+
+## WebSocket
+
+`ws://host:8000/v1/tts/stream`
+
+Tek bağlantıda istediğiniz kadar istek gönderebilirsiniz. Model yalnızca bir isteğin
+üretimi boyunca ayrılır, istekler arasında serbest kalır — uzun ömürlü bir bağlantı GPU
+tutmaz.
+
+### Akış
+
+```
+istemci -> {"text": "Merhaba dünya. İkinci cümle.", "voice": "kadın"}
+sunucu  <- {"event":"stream_start","format":"pcm16_le","sample_rate":48000}
+sunucu  <- <ikili PCM çerçevesi>            (birçok kez)
+sunucu  <- {"event":"sentence_complete","sentence_index":0}
+sunucu  <- <ikili PCM çerçevesi>
+sunucu  <- {"event":"sentence_complete","sentence_index":1}
+sunucu  <- {"event":"stream_end"}
+
+istemci -> {"text": "Başka bir istek."}      (aynı bağlantıda tekrar)
+...
+istemci -> {"event":"close"}
+sunucu  <- kapanış kodu 1000
+```
+
+### Gönderilen çerçeveler
+
+| Alan | Değer |
+|---|---|
+| `{"text": "..."}` | Sentezlenecek metin. Boş veya yalnızca boşluk olmamalı |
+| `{"voice": "..."}` | İsteğe bağlı ses adı. Her istekte ayrı verilebilir |
+| `{"event": "close"}` | Oturumu düzgün kapat |
+
+Bağlantıyı doğrudan koparmak da güvenlidir; sunucu ayrılmış modeli her durumda bırakır.
+
+### Alınan çerçeveler
+
+**`stream_start`** — ses çerçeveleri başlamadan önce bir kez.
+
 ```json
-{
-  "event": "sentence_complete",
-  "sentence_index": 0
-}
+{"event": "stream_start", "format": "pcm16_le", "sample_rate": 48000}
 ```
 
-**3. Akış Bitişi (`stream_end`):**
-Tüm ses başarıyla gönderildikten sonra atılır ve sunucu WebSocket bağlantısını (`1000 Normal Closure`) kapatır.
+Örnekleme hızını sabit yazmayın, bu alandan okuyun.
+
+**İkili çerçeve** — ham PCM16-LE. Boyut sabit değildir;
+`streaming.chunk_duration_ms` ayarına göre değişir.
+
+**`sentence_complete`** — bir cümlenin sesi tamamlandığında.
+
 ```json
-{
-  "event": "stream_end"
-}
+{"event": "sentence_complete", "sentence_index": 0}
 ```
 
-**4. Hata Durumu (`error`):**
-Herhangi bir yazılımsal veya donanımsal hata (çökme) yaşandığında iletilir.
+**`stream_end`** — bu isteğin sesi bitti. Bağlantı açık kalır, yeni istek gönderebilirsiniz.
+
+**`error`** — her hata çerçevesi `error_type` **ve** `message` taşır; iki alanı da
+koşulsuz okuyabilirsiniz.
+
 ```json
-{
-  "event": "error",
-  "error_type": "ValueError",
-  "message": "Geçersiz giriş formatı."
-}
+{"event": "error", "error_type": "PoolBusy", "message": "Tüm modeller meşgul (1 adet), 30.0 saniyede boşalmadı."}
 ```
 
-### B. İkili Çerçeveler (Binary Frames - Raw Bytes)
-Ses paketleri kayıpsız, başlık bilgisi içermeyen saf (raw) byte dizileri olarak gönderilir.
-* **Format:** `PCM16` (16-bit Signed Integer)
-* **Byte Sıralaması:** `Little-Endian (LE)` (Donanım okuma seviyesi uyumluluğu için - ekstra CPU döngüsü harcatmaz).
-* İstemci cihazlar (Örn: Android `AudioTrack`, iOS `AVAudioEngine` veya C# byte tamponları) bu veriyi aldığı gibi hoparlör arabelleğine yazabilir.
+| `error_type` | Kapanış kodu | Sebep |
+|---|---|---|
+| `ValidationError` | `1008` | `text` boş veya eksik |
+| `VoiceNotFound` | `1008` | `voice` adı sunucuda yok |
+| `PoolBusy` | `1013` | Zaman aşımı içinde GPU boşalmadı; geri çekilip tekrar deneyin |
+| `IdleTimeout` | `1000` | `ws_idle_timeout_s` boyunca mesaj gelmedi |
+| diğer | `1011` | Sunucu tarafı hata |
 
----
+## İstemci örnekleri
 
-## 4. .NET ve Java Middleware Entegrasyon Örnekleri
+### Python
 
-Hataları yakalayıp JSON'ı parse etmek ve Binary veriyi ayırmak için Middleware katmanlarında aşağıdaki gibi bir yapı kullanılmalıdır.
+```python
+import asyncio
+import json
+import websockets
 
-### .NET (C#) Middleware Örneği
+async def seslendir(text: str) -> bytes:
+    """Bir metni seslendirip ham PCM16 döner."""
+    pcm = bytearray()
+    async with websockets.connect("ws://127.0.0.1:8000/v1/tts/stream") as ws:
+        await ws.send(json.dumps({"text": text}))
+        while True:
+            message = await ws.recv()
+            if isinstance(message, bytes):
+                pcm += message
+                continue
+            event = json.loads(message)
+            if event["event"] == "stream_end":
+                break
+            if event["event"] == "error":
+                raise RuntimeError(f"{event['error_type']}: {event['message']}")
+        await ws.send(json.dumps({"event": "close"}))
+    return bytes(pcm)
+
+asyncio.run(seslendir("Merhaba dünya."))
+```
+
+Çalışan, hoparlörden çalan tam örnek: [`examples/client.py`](examples/client.py).
+`--play` için `pyaudio` gerekir, paketin bağımlılığı değildir.
+
+### C# (.NET)
+
 ```csharp
 using System.Net.WebSockets;
-using System.Text.Json;
 using System.Text;
+using System.Text.Json;
 
-var ws = new ClientWebSocket();
-await ws.ConnectAsync(new Uri("ws://127.0.0.1:8000/ws/tts"), CancellationToken.None);
-
-// İsteği Gönder
-var requestJson = JsonSerializer.Serialize(new { text = "Merhaba .NET dünyası!" });
-await ws.SendAsync(Encoding.UTF8.GetBytes(requestJson), WebSocketMessageType.Text, true, CancellationToken.None);
-
-// Yanıtları Dinle
-var buffer = new byte[8192];
-while (ws.State == WebSocketState.Open)
+async Task<byte[]> Seslendir(string text, CancellationToken ct)
 {
-    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-    
-    // TEXT FRAME (Kontrol Mesajları ve Hatalar)
-    if (result.MessageType == WebSocketMessageType.Text)
+    using var ws = new ClientWebSocket();
+    await ws.ConnectAsync(new Uri("ws://127.0.0.1:8000/v1/tts/stream"), ct);
+
+    var request = JsonSerializer.SerializeToUtf8Bytes(new { text });
+    await ws.SendAsync(request, WebSocketMessageType.Text, true, ct);
+
+    using var pcm = new MemoryStream();
+    var buffer = new byte[64 * 1024];
+
+    while (true)
     {
-        var jsonResponse = Encoding.UTF8.GetString(buffer, 0, result.Count);
-        var jsonDoc = JsonDocument.Parse(jsonResponse);
-        
-        var eventType = jsonDoc.RootElement.GetProperty("event").GetString();
-        if (eventType == "error")
+        var result = await ws.ReceiveAsync(buffer, ct);
+
+        if (result.MessageType == WebSocketMessageType.Binary)
         {
-            var errType = jsonDoc.RootElement.GetProperty("error_type").GetString();
-            var errMsg = jsonDoc.RootElement.GetProperty("message").GetString();
-            // NLog veya Serilog ile logla
-            _logger.LogError("TTS Hatası [{ErrorType}]: {ErrorMessage}", errType, errMsg);
+            pcm.Write(buffer, 0, result.Count);
+            continue;
         }
+
+        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(buffer, 0, result.Count));
+        var name = doc.RootElement.GetProperty("event").GetString();
+
+        if (name == "stream_end") break;
+        if (name == "error")
+            throw new InvalidOperationException(
+                $"{doc.RootElement.GetProperty("error_type").GetString()}: " +
+                doc.RootElement.GetProperty("message").GetString());
     }
-    // BINARY FRAME (Saf Ses Verisi - PCM16 LE)
-    else if (result.MessageType == WebSocketMessageType.Binary)
-    {
-        var pcmData = buffer.Take(result.Count).ToArray();
-        // Sesi işleme katmanına ilet
-        ProcessRawAudioStream(pcmData);
-    }
+
+    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, null, ct);
+    return pcm.ToArray();
 }
 ```
 
-### Java (Spring / OkHttp) Middleware Örneği
+Uzun metinlerde tek bir `ReceiveAsync` çağrısı bütün mesajı almayabilir; üretimde
+`result.EndOfMessage` bitene kadar okumaya devam edin.
+
+### Java (OkHttp)
+
 ```java
-import okhttp3.*;
-import org.json.JSONObject;
-
 OkHttpClient client = new OkHttpClient();
-Request request = new Request.Builder().url("ws://127.0.0.1:8000/ws/tts").build();
+Request request = new Request.Builder()
+        .url("ws://127.0.0.1:8000/v1/tts/stream")
+        .build();
 
-WebSocketListener webSocketListener = new WebSocketListener() {
-    @Override
-    public void onOpen(WebSocket webSocket, Response response) {
-        webSocket.send("{\"text\": \"Merhaba Java dünyası!\"}");
+ByteArrayOutputStream pcm = new ByteArrayOutputStream();
+
+client.newWebSocket(request, new WebSocketListener() {
+    @Override public void onOpen(WebSocket ws, Response response) {
+        ws.send("{\"text\":\"Merhaba dünya.\"}");
     }
 
-    @Override
-    public void onMessage(WebSocket webSocket, String text) {
-        // Text Frame: JSON Olayları
-        try {
-            JSONObject json = new JSONObject(text);
-            if (json.getString("event").equals("error")) {
-                String type = json.getString("error_type");
-                String msg = json.getString("message");
-                // SLF4J / Logback ile loglama
-                logger.error("TTS Motor Hatası [{}]: {}", type, msg);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+    @Override public void onMessage(WebSocket ws, ByteString bytes) {
+        try { pcm.write(bytes.toByteArray()); } catch (IOException ignored) { }
+    }
+
+    @Override public void onMessage(WebSocket ws, String text) {
+        JSONObject event = new JSONObject(text);
+        switch (event.getString("event")) {
+            case "stream_end" -> ws.send("{\"event\":\"close\"}");
+            case "error" -> throw new IllegalStateException(
+                    event.getString("error_type") + ": " + event.getString("message"));
+            default -> { }
         }
     }
+});
+```
 
-    @Override
-    public void onMessage(WebSocket webSocket, ByteString bytes) {
-        // Binary Frame: Ses Akışı (PCM16 LE)
-        byte[] pcmData = bytes.toByteArray();
-        // İstemci soketine yönlendir
-        audioOutputStream.write(pcmData);
-    }
+### Tarayıcı (Web Audio)
+
+```javascript
+const ws = new WebSocket("ws://127.0.0.1:8000/v1/tts/stream");
+ws.binaryType = "arraybuffer";
+
+const audio = new AudioContext();
+let sampleRate = 48000;
+let playAt = 0;
+
+ws.onopen = () => ws.send(JSON.stringify({ text: "Merhaba dünya." }));
+
+ws.onmessage = (message) => {
+  if (typeof message.data !== "string") {
+    const pcm = new Int16Array(message.data);
+    const buffer = audio.createBuffer(1, pcm.length, sampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audio.destination);
+    playAt = Math.max(playAt, audio.currentTime);
+    source.start(playAt);
+    playAt += buffer.duration;
+    return;
+  }
+
+  const event = JSON.parse(message.data);
+  if (event.event === "stream_start") sampleRate = event.sample_rate;
+  if (event.event === "error") console.error(event.error_type, event.message);
+  if (event.event === "stream_end") ws.send(JSON.stringify({ event: "close" }));
 };
-
-client.newWebSocket(request, webSocketListener);
 ```
 
----
+Çalışan tam örnek: [`src/turkish_tts/api/static/index.html`](src/turkish_tts/api/static/index.html).
 
-## 5. Canlı LLM (Büyük Dil Modeli) Akış Entegrasyonu (OpenAI, Gemini vb.)
+## LLM çıktısını seslendirme
 
-Eğer metin statik değilse ve bir yapay zeka modelinden (örneğin OpenAI GPT-4, Llama veya Gemini) kelime kelime (token-by-token) akıyorsa, bu akışı kesintisiz bir sese dönüştürmek için Middleware tarafında **"Cümle Sınırı Tamponlama (Sentence-Boundary Buffering)"** stratejisi uygulanmalıdır.
+Bir dil modelinin ürettiği metni seslendirirken iki yol var.
 
-### Mimari Akış:
-1. **Dinleme:** Middleware (C# / Java), LLM'in sunduğu Server-Sent Events (SSE) akışına (stream) bağlanır.
-2. **Biriktirme:** Gelen her token (kelime/hece) geçici bir bellekte (String Builder) biriktirilir.
-3. **Fırlatma:** `.`, `?`, `!`, `\n` gibi cümle sonu belirteçlerinden birine rastlandığı anda biriktirilen bu tam cümle TTS WebSocket'ine `{ "text": "tam cümle." }` payload'u ile gönderilir. Tampon (buffer) sıfırlanır.
-4. **Eşzamanlılık:** TTS sunucusu bu cümleyi anında sese çevirip Binary Frame olarak geri dönerken, Middleware arka planda LLM'den gelen sonraki cümleyi biriktirmeye devam eder. Bu sayede ilk sese varış süresi (TTFA) olağanüstü düşer.
+**Cümle cümle gönderin (önerilen).** LLM'den gelen token'ları kendi tarafınızda biriktirin,
+cümle sonunu gördükçe aynı WebSocket bağlantısı üzerinden bir `{"text": ...}` gönderin.
+Bağlantı tek, istekler sıralı; her `stream_end` sonrası bir sonraki cümleyi yollayın.
 
-### .NET (C#) ile OpenAI ve TTS Köprüsü Örneği
+**Tamamını bekleyin.** LLM bitince tek istek gönderin. Daha basit, ilk sese kadar süre
+LLM'in toplam süresi kadar uzar.
 
-Aşağıdaki örnek, OpenAI akışından gelen yanıtları anlık olarak yakalayıp doğrudan TTS motorumuza ileten örnek bir köprü fonksiyonudur:
+Sunucu şu an token akışını kendi içinde tamponlamıyor; cümleye bölmeyi istemci yapar.
 
-```csharp
-using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
-// Not: Projenizde kullandığınız OpenAI veya LLM SDK'sına göre uyarlayınız.
+## Üretim notları
 
-public async Task StreamLlmToTts(IAsyncEnumerable<string> llmTokenStream, ClientWebSocket ttsSocket)
-{
-    StringBuilder sentenceBuffer = new StringBuilder();
-    // Cümleyi böleceğimiz noktalama işaretleri
-    char[] delimiters = { '.', '?', '!', '\n' };
-
-    // LLM'den gelen her bir kelimeyi (token) dinliyoruz
-    await foreach (var token in llmTokenStream)
-    {
-        sentenceBuffer.Append(token);
-
-        // Eğer gelen token bir cümle bitirici işaret içeriyorsa
-        if (token.IndexOfAny(delimiters) >= 0)
-        {
-            string completeSentence = sentenceBuffer.ToString().Trim();
-            if (completeSentence.Length > 2)
-            {
-                // Yakalanan tam cümleyi TTS Sunucusuna fırlat
-                var request = JsonSerializer.Serialize(new { text = completeSentence });
-                await ttsSocket.SendAsync(
-                    Encoding.UTF8.GetBytes(request), 
-                    WebSocketMessageType.Text, 
-                    true, 
-                    CancellationToken.None
-                );
-            }
-            
-            // Sonraki cümle için tamponu sıfırla
-            sentenceBuffer.Clear();
-        }
-    }
-    
-    // LLM akışı tamamen bittiğinde, noktalamasız arta kalan son kelimeler varsa onları da yolla
-    if (sentenceBuffer.Length > 0)
-    {
-        var finalRequest = JsonSerializer.Serialize(new { text = sentenceBuffer.ToString().Trim() });
-        await ttsSocket.SendAsync(
-            Encoding.UTF8.GetBytes(finalRequest), 
-            WebSocketMessageType.Text, 
-            true, 
-            CancellationToken.None
-        );
-    }
-}
-```
-
-### Bu Yöntemin Avantajları:
-- **Kekemelik (Stuttering) Engellenir:** LLM'ler internet bağlantısına veya sunucu yoğunluğuna göre kelimeleri düzensiz hızlarda atabilir. Kelime kelime TTS'e göndermek robotik ve kesintili bir ses yaratır. Cümle bazlı göndermek, TTS'in ses entonasyonunu (vurguları) mükemmel ayarlamasını sağlar.
-- **Kusursuz Paralellik:** İlk cümle TTS'te işlenip sese dönüşürken (ve kullanıcı hoparlörden ilk sesi duyarken), LLM çoktan ikinci ve üçüncü cümleyi Middleware'e basmış olur. İstemci kesinlikle bekletilmez.
+- **Kimlik doğrulama yoktur.** Servisi doğrudan internete açmayın; önüne kimlik doğrulama
+  ve hız sınırlaması yapan bir ağ geçidi koyun.
+- **Eşzamanlılık GPU sayısı kadardır.** VoxCPM2 toplu işleme desteklemiyor; bir model aynı
+  anda bir istek üretir. `system.voxcpm_gpu_ids` ile model örneği sayısını belirlersiniz.
+- **503 ve 1013'ü geri çekilerek karşılayın.** Bunlar aşırı yüklenme sinyalidir, hata değil.
+- **CORS varsayılanı `["*"]`.** Üretimde `api.cors_allowed_origins` ile daraltın.
+- **Örnekleme hızını sabit yazmayın.** `stream_start` çerçevesinden okuyun.

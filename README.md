@@ -1,143 +1,318 @@
-# 🚀 TTS (Text-to-Speech) Akışkan Çıkarım (Streaming) Sistemi
+<p align="center">
+  <img src="assets/banner.svg" alt="Turkish TTS" width="820">
+</p>
 
-Bu proje, **VoxCPM** ve **Trendyol TTS** modelleri temel alınarak geliştirilmiş, düşük gecikmeli (low-latency) ve yüksek verimli (high-throughput) bir ses sentezleme sistemidir. Geleneksel TTS sistemlerinin aksine, metnin tamamının sentezlenmesini beklemeden ilk anlamlı cümleyi üretir üretmez akıtmaya (streaming) başlar.
+<p align="center">
+  <a href="https://pypi.org/project/turkish-tts/"><img alt="PyPI" src="https://img.shields.io/pypi/v/turkish-tts?color=3b82f6&label=pypi"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3b82f6">
+  <a href="https://github.com/Boran-Sert/Turkish-TTS/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Boran-Sert/Turkish-TTS/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="Lisans" src="https://img.shields.io/badge/lisans-Apache--2.0-22d3ee"></a>
+</p>
 
-## 🌟 Öne Çıkan Özellikler
+Türkçe metin-konuşma. Trendyol'un [VoxCPM2](https://github.com/OpenBMB/VoxCPM) üzerine ince
+ayarladığı ağırlıkları üç şekilde sunar:
 
-- **Minimum Time-To-First-Audio (TTFA):** İlk sesi alma süresi sıfıra yakındır. Token-by-token işleme ile asenkron ses akışı sağlar.
-- **Yüksek Eşzamanlılık (High Concurrency):** Ağır yapay zeka işlemleri arka plan iş parçacığı havuzlarına devredilerek FastAPI ana döngüsünün bloklanması engellenir.
-- **GPU Havuzu (Resource Pooling):** Birden fazla GPU yatay ölçekte yönetilir (`VoxCPMEnginePool`). Gelen istekler boştaki en uygun GPU'ya atanır.
-- **Kesintisiz Çalışma (CPU Fallback):** Eğer tüm GPU'lar meşgulse ve kuyruk sınırı aşılırsa, istekler şeffaf bir şekilde ultra hızlı CPU tabanlı **Piper TTS** motoruna yönlendirilir.
-- **Maksimum Donanım Verimliliği:** Önceden ayrılmış (pre-allocated) RingBuffer ve vektörize bellek operasyonları ile Garbage Collection duraklamaları önlenir.
+- **Kütüphane:** `TurkishTTS().save("Merhaba dünya.", "out.wav")`
+- **Servis:** HTTP ve WebSocket, cümle cümle akan 48 kHz PCM16 ses
+- **İnce ayar:** kendi veri setinizle LoRA eğitimi, tek fonksiyon çağrısıyla
 
----
+Çıktı tek kanal, 16 bit, **48 kHz**.
 
-## 🛠️ Sistem Gereksinimleri
+## Gereksinimler
 
-- **İşletim Sistemi:** Windows / Linux / macOS
-- **Python Sürümü:** Python 3.8+ (3.10+ önerilir)
-- **Donanım:** 
-  - Gelişmiş performans için NVIDIA GPU (CUDA destekli).
-  - CPU modunda Piper ile çalışabilmek için modern çok çekirdekli bir işlemci.
-- **Araçlar:** Git, pip
+| Gereksinim | Değer |
+|---|---|
+| Python | 3.10+ |
+| GPU | CUDA zorunlu. Model 2B parametre, upstream ~8 GB VRAM bildiriyor |
+| Disk | Ağırlıklar için ~5 GB (Hugging Face önbelleğine iner) |
 
----
+Servis GPU'suz açılmaz; `turkish-tts-server` net bir hata verip durur.
 
-## 🚀 Kurulum (Adım Adım)
+Ölçülen değerler (RTX 4060 Laptop, tek model, `benchmarks/baseline.json`):
 
-Sistemi en ufak ayrıntısına kadar eksiksiz kurmak için aşağıdaki adımları sırasıyla uygulayın:
+| | eşzaman 1 | eşzaman 2 |
+|---|---|---|
+| İlk sese kadar (TTFB p50) | 341 ms | 4829 ms |
+| RTF p50 | 1.045 | 1.809 |
+| Verim (ses sn / duvar sn) | 0.96 | 1.01 |
 
-### Adım 1: Proje Dizinine Giriş Yapın
-Terminal (veya Komut İstemcisi / PowerShell) üzerinden projenin bulunduğu dizine gidin:
+Yükleme 14-20 s, üretim tepesinde ~5.7 GB VRAM. Eşzamanlı istek kapasitesi model örneği
+sayısıyla sınırlı: ikinci istemci birincinin bitmesini bekler, bu yüzden p95 fırlar.
+Upstream RTX 4090 için RTF ~0.30, hızlandırılmış runtime'larla ~0.13 bildiriyor
+([karşılaştırma tablosu](src/turkish_tts/_vendor/voxcpm/README.upstream.md)). Kendi
+donanımınızdaki değeri `benchmarks/bench.py` ile ölçün.
+
+## Kurulum
+
 ```bash
-cd yol/TTS
+git clone https://github.com/Boran-Sert/Turkish-TTS.git
+cd Turkish-TTS
+
+# CUDA'lı torch (varsayılan pip Windows'ta CPU tekerleğini çeker)
+uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+uv pip install -e .                 # yalnızca çıkarım
+uv pip install -e ".[finetune]"     # ince ayar da gerekiyorsa
+
+turkish-tts-fetch                   # ağırlıkları indir (~5 GB, bir kez)
 ```
 
-### Adım 2: Sanal Ortam (Virtual Environment) Oluşturma (Önerilen)
-Bağımlılıkların sisteminizdeki diğer projelerle çakışmaması için bir sanal ortam oluşturun ve aktifleştirin:
+`uv` yerine `pip` de çalışır; komutlardan `uv ` önekini kaldırın.
 
-**Windows için:**
+### Docker
+
 ```bash
-python -m venv venv
-venv\Scripts\activate
-```
-**Linux / macOS için:**
-```bash
-python3 -m venv venv
-source venv/bin/activate
+docker compose -f docker/compose.yaml up
 ```
 
-### Adım 3: Otomatik Kurulum Betiğini Çalıştırma
-Sistem, kurulum işlemlerini tek tıkla halledebilmeniz için `setup_env.py` adlı bir betik ile gelmektedir. Bu betiği çalıştırdığınızda şu adımlar otomatik olarak gerçekleşir:
-1. `requirements.txt` içindeki temel bağımlılıklar (FastAPI, uvicorn, websockets, numpy, vb.) indirilir.
-2. Yerel `VoxCPM` motoru ve kendi bağımlılıkları yüklenir.
-3. Hugging Face üzerinden **Trendyol-TTS** model ağırlıkları kontrol edilir ve yoksa `Trendyol-TTS` klasörüne indirilir (`model.safetensors`, `audiovae.pth`).
-4. **Piper Fallback** motoru için gerekli ONNX ve JSON dosyaları kontrol edilir ve yoksa `Piper-TTS-Model` klasörüne indirilir.
+Ağırlıklar `hf-cache` volume'una iner, konteyner yeniden kurulsa da tekrar inmez. GPU
+geçişi compose dosyasında tanımlı; ayarları `environment` altından verin.
 
-Betiği çalıştırmak için şu komutu girin:
-```bash
-python setup_env.py
+## Kütüphane olarak
+
+```python
+from turkish_tts import TurkishTTS
+
+tts = TurkishTTS()
+
+tts.save("Merhaba, bugün nasılsınız?", "out.wav")       # WAV dosyası
+pcm = tts.synthesize("Siparişiniz kargoya verildi.")     # ham PCM16-LE bytes
+
+for chunk in tts.stream("Uzun bir metin. İkinci cümle."):  # cümle cümle akış
+    hoparlore_yaz(chunk)
+
+print(tts.sample_rate)   # 48000
+print(tts.info())        # yüklenen model, cihaz, etkin ayarlar
 ```
-> **Not:** İndirme işlemi internet hızınıza ve modellerin boyutuna (örn. Trendyol-TTS) bağlı olarak birkaç dakika sürebilir. Komut çıktısında `[+] Kurulum işlemleri tamamlandı!` mesajını görmeden işlemi yarıda kesmeyin.
+
+Tamamı:
+
+| Çağrı | Ne yapar |
+|---|---|
+| `tts.synthesize(text, voice=None)` | Ham PCM16-LE bayt döner |
+| `tts.save(text, path, voice=None)` | WAV dosyası yazar |
+| `tts.stream(text, voice=None)` | Cümle cümle PCM16 parçaları üretir |
+| `tts.clone(text, reference)` | Metni referans kaydın sesiyle söyler |
+| `tts.clone_to_file(text, reference, path)` | Aynısı, WAV'a yazar |
+| `TurkishTTS.list_voices()` | Klonlanabilir sesleri listeler |
+| `TurkishTTS.get_voice(name)` | Tek bir sesi getirir |
+| `TurkishTTS.voices_directory()` | Seslerin okunduğu dizin |
+| `TurkishTTS.finetune(dataset, out)` | LoRA ince ayarı başlatır |
+| `TurkishTTS.check_dataset(dataset)` | Veri setini doğrular |
+| `TurkishTTS.settings()` | Etkin ayarları döner |
+| `TurkishTTS.reload_settings()` | Ayarları yeniden okur |
+| `tts.info()` | Yüklenen model ve etkin ayarlar |
+| `tts.sample_rate` | 48000 |
+
+## Ses klonlama
+
+Bir referans kayıt verip metni o sesle söyletebilirsiniz. Transkript gerekmez:
+
+```python
+tts.clone_to_file("Merhaba, nasılsınız?", "ornek.wav", "klon.wav")
+
+# Her çağrıda ses seçmek
+tts.save("Merhaba.", "out.wav", voice="ornek.wav")
+
+# voices/ dizinindeki sesleri isimle kullanmak
+for voice in TurkishTTS.list_voices():
+    print(voice.name, voice.has_transcript)
+
+tts.save("Merhaba.", "out.wav", voice="kadın")
+
+# Varsayılan ses olarak sabitlemek
+tts = TurkishTTS(voice="kadın")
+```
+
+Ses havuzu `voices_dir` ayarıyla belirlenir (varsayılan `voices/`). Bir `ornek.wav`
+koyduğunuzda `voice="ornek"` olarak kullanılabilir hale gelir. Yanındaki `ornek.txt`
+varsa transkript olarak okunur, ama klonlama **varsayılan olarak transkript
+kullanmaz** — yalnızca ses tınısını taklit eder. Transkripti de kullanan "devam modu"
+ancak metin gerçekten o kaydın dökümüyse doğru çalışır.
+
+Model ilk `TurkishTTS()` çağrısında yüklenir; nesneyi saklayıp yeniden kullanın.
+
+```python
+tts = TurkishTTS(model_path="runs/benim-sesim")   # kendi ince ayarınız
+tts = TurkishTTS(device="cuda:1")
+```
+
+## Servis olarak
+
+```bash
+turkish-tts-server          # 0.0.0.0:8000
+```
+
+`TTS_HOST` ve `TTS_PORT` ile adresi değiştirebilirsiniz. `http://localhost:8000/` basit bir
+demo sayfası açar.
+
+| Yol | Ne yapar |
+|---|---|
+| `GET /health` | Canlılık. Model yüklenirken de anında cevap verir |
+| `GET /ready` | Hazırlık. Havuz yüklenene kadar 503 |
+| `POST /v1/tts` | Metni sentezler, tam WAV döner |
+| `POST /v1/tts/stream` | WAV başlığı, ardından üretildikçe PCM16 akışı |
+| `WS /v1/tts/stream` | JSON kontrol çerçeveleri + ikili ses çerçeveleri, çok istekli |
+| `GET /v1/voices` | Klonlama için kullanılabilir sesleri listeler |
+
+```bash
+curl -X POST localhost:8000/v1/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Merhaba dünya."}' -o out.wav
+```
+
+Protokolün tamamı, olay çerçeveleri ve C#/Java/Python/JavaScript istemci örnekleri:
+[API_INTEGRATION_GUIDE.md](API_INTEGRATION_GUIDE.md).
+
+Havuştaki bütün modeller meşgulse istek beklemez: HTTP **503**, WebSocket **1013** ile
+kapanır. Eşik `pool_acquire_timeout_s`.
+
+## Yapılandırma
+
+Öncelik sırası: **ortam değişkeni > JSON dosyası > varsayılan.**
+
+Ortam değişkenleri `TTS_<BÖLÜM>_<ALAN>` kalıbında. Liste ve sayı değerleri JSON olarak yazılır:
+
+```bash
+export TTS_MODEL_CFG_VALUE=2.0
+export TTS_STREAMING_CHUNK_DURATION_MS=200
+export TTS_SYSTEM_VOXCPM_GPU_IDS="[0,1]"
+export TTS_LOG_LEVEL=DEBUG
+```
+
+JSON dosyası çalışma dizinindeki `tts_config.json`'dır; başka bir yol için `TTS_CONFIG_FILE`.
+
+| Ayar | Varsayılan | Ne işe yarar |
+|---|---|---|
+| `model.model_path` | `./Trendyol-TTS` | Yerel dizin veya HF repo id'si |
+| `model.inference_timesteps` | `8` | Difüzyon adımı. Artırmak kaliteyi ve maliyeti büyütür |
+| `model.max_length` | `4096` | KV penceresi. Küçültmek adım maliyetini düşürür; üretim sınırının (4096) altına inmek riskli |
+| `model.cfg_value` | `2.0` | Yönlendirme gücü. Model kartının önerdiği değer; büyütmek hızı değiştirmez |
+| `streaming.chunk_duration_ms` | `200` | İlk sese kadar süreyi doğrudan belirler |
+| `text_processing.min_chars` | `30` | Bu uzunluğun altındaki parçalar sonraki cümleye eklenir |
+| `voices_dir` | `voices` | Klonlama için referans seslerin okunduğu dizin |
+| `system.voxcpm_gpu_ids` | `[0]` | Her GPU için bir model örneği yüklenir |
+| `system.use_torch_compile` | `true` | `torch.compile`. Triton yoksa sessizce atlanır |
+| `system.pool_acquire_timeout_s` | `30` | Bu sürede GPU boşalmazsa 503 |
+| `system.ws_idle_timeout_s` | `300` | Mesaj gelmeyen WebSocket bu sürede kapanır |
+| `api.cors_allowed_origins` | `["*"]` | Üretimde daraltın |
+
+Tablodaki değerler depodaki `tts_config.json` ile gelen değerlerdir ve
+`benchmarks/` altındaki ölçümlerle seçilmiştir. `use_torch_compile` triton kurulu
+olmayan ortamlarda sessizce etkisiz kalır. Kendi donanımınızda `benchmarks/bench.py`
+ile ölçmeden değiştirmeyin.
+
+Ayarlar import anında okunur; değişiklik yeniden başlatma gerektirir.
+
+## İnce ayar
+
+Trendyol'un ağırlıkları **zaten** genel Türkçe için ince ayarlı (20+ saat özel veri,
+`Trendyol-TTS/merge_manifest.json`). Kendi ince ayarınız belirli bir **konuşmacı sesi**,
+alan terminolojisi veya ton için anlam kazanır; genel Türkçe kalitesi için tekrar etmeye
+gerek yok.
+
+Veri seti satır başına bir JSON nesnesi (`examples/train_data_example.jsonl`):
+
+```json
+{"audio": "data/0001.wav", "text": "Merhaba, bugün nasılsınız?"}
+{"audio": "data/0002.wav", "text": "Siparişiniz kargoya verildi.", "duration": 2.8}
+```
+
+`duration` isteğe bağlıdır; verirseniz filtreleme sırasında ses dosyası açılmaz.
+
+```python
+from turkish_tts import TurkishTTS, check_dataset
+
+check_dataset("data/train.jsonl")        # önce doğrula: eksik wav, boş metin, süre
+
+TurkishTTS.finetune(
+    "data/train.jsonl",
+    "runs/benim-sesim",
+    val_dataset="data/val.jsonl",
+    steps=2000,
+    lora_rank=64,
+)
+
+tts = TurkishTTS(model_path="runs/benim-sesim")
+```
+
+`dry_run=True` verirseniz yalnızca veri seti doğrulanır, eğitim başlamaz. Varsayılanların
+tamamı ve anlamları `FinetuneConfig` içinde; hepsi anahtar kelimeyle geçilebilir
+(`learning_rate`, `batch_size`, `grad_accum_steps`, `lora_alpha`, `lora_target_dit`, ...).
+Varsayılanlar Trendyol'un kullandığı değerlerdir. Eğitim bitince çıktı dizinine, hangi
+veriden ve hangi ayarlarla üretildiğini kaydeden `finetune_manifest.json` yazılır.
+
+İnce ayar `turkish-tts[finetune]` extra'sını gerektirir.
+
+## Nasıl çalışır
+
+```
+istek -> VoxCPMPool.acquire()              GPU başına bir model örneği, timeout'lu kiralama
+      -> sentence_source(text)             TextBuffer ile cümlelere bölme
+      -> generate_stream_from_text_source  cümle cümle üretim
+      -> AudioChunk akışı                  PCM16-LE, 48 kHz
+```
+
+Model örnekleri `acquire()` bağlamını **çağıran** tutar; ses üreticisinin içinde değil. Bu
+yüzden istemci akışın ortasında koparsa model havuza her durumda geri döner. Eşzamanlılık
+GPU sayısıyla sınırlıdır: VoxCPM2 toplu işlemeyi (batching) desteklemiyor, bir model aynı
+anda bir istek üretir.
+
+Gecikmenin büyük kısmı iki yerden gelir: `chunk_duration_ms` (ilk ses paketi için
+biriktirilen süre) ve `inference_timesteps` × `cfg_value` (adım başına difüzyon maliyeti).
+
+## Ölçüm
+
+```bash
+turkish-tts-server &
+python benchmarks/bench.py --concurrency 1,2,4 --out benchmarks/baseline.json
+python benchmarks/bench.py --compare benchmarks/baseline.json
+```
+
+TTFB (ilk sese kadar süre), RTF, p50/p95, verim ve tepe VRAM raporlanır. Rapora o anki
+ayarlar da gömülür, çünkü sayılar ayarlar bilinmeden karşılaştırılamaz.
+
+`benchmarks/before_optimization.json` ayar denemelerinden önceki durumu tutuyor; aradaki
+fark `--compare` ile görülebilir (TTFB −%88, RTF −%50).
+
+## Bilinen sınırlar
+
+- **Toplu işleme yok.** Eşzamanlı kapasite GPU sayısı kadardır. Çok kiracılı yük için
+  upstream'in işaret ettiği vLLM-Omni / Nano-vLLM runtime'ları değerlendirilmeli.
+- **Kimlik doğrulama yok.** Servisi doğrudan internete açmayın; önüne bir ağ geçidi koyun.
+- **Kuantizasyon yok.** GGUF/ONNX varyantları yalnızca harici projelerde mevcut.
+- **Cümle bölme uç durumu:** bölme deseni metin sonunu da eşleştirdiği için token token
+  besleme yapıldığında `"Prof. Dr."` gibi kısaltmalar yanlış bölünebilir. Metni tek
+  seferde verdiğinizde sorun çıkmaz.
+
+## Katkı
+
+Geliştirme ortamı kurulumu, kod kuralları, commit biçimi ve yayın akışı:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Lisans
+
+Projenin kendi kodu Apache-2.0 ([LICENSE](LICENSE)). Vendor'lanmış VoxCPM de Apache-2.0,
+Trendyol ağırlıkları MIT olarak etiketli. Üçüncü taraf bileşenlerin tamamı, yapılan
+değişiklikler ve dikkat edilmesi gereken kısıtlar: [LICENSE-NOTICE.md](LICENSE-NOTICE.md).
+
+Ağırlıkların eğitim verisi özeldir; Trendyol'un model kartı kullanım sorumluluğunu
+geliştiriciye bırakıyor. Ses taklidi, izinsiz klonlama ve dolandırıcılık amaçlı kullanım
+model kartında açıkça yasaklanmıştır.
 
 ---
 
-## ⚙️ Yapılandırma (`tts_config.json`)
+## Son bir not
 
-Sisteminizin davranışını `tts_config.json` dosyası üzerinden en ince detayına kadar ayarlayabilirsiniz:
+Açık olayım: burası benim asıl odaklandığım proje değil. Bunu, Türkçe için gerçekten iyi
+çalışan ve üstüne rahatça bir şeyler kurulabilen bir TTS zemini olsun diye yazdım. Türk
+geliştiricilerin elinin altında böyle bir şey bulunsun istedim.
 
-- **model**:
-  - `model_path`: Kullanılacak TTS modelinin yerel dizini (Varsayılan: `"./Trendyol-TTS"`).
-  - `inference_timesteps`: Sentezleme kalitesi ve hızı arasındaki dengeyi belirler (Varsayılan: `8`).
-  - `adaptive_timesteps`: Metin uzunluğuna göre dinamik adım atılıp atılmayacağı.
-  - `cfg_value`: Modelin Classifier-Free Guidance değeri (Varsayılan: `2.8`).
-- **streaming**:
-  - `chunk_duration_ms`: İstemciye gönderilecek her bir ses paketinin milisaniye cinsinden süresi.
-  - `output_format`: Çıktı formatı, genellikle `"pcm16_le"` (16-bit PCM Little Endian).
-  - `enable_lookbehind`: Sentezleme akıcılığını artırmak için önceki sesi referans alma durumu.
-  - `lookbehind_mode`: Bağlantı noktası referans modu (`"anchor"` vb.).
-- **text_processing**:
-  - `sentence_delimiters`: Metni cümlelere ayırmak için kullanılan noktalama işaretleri (`.?!…,;\n`).
-  - `flush_timeout_ms`: Tam bir cümle oluşmadığında bile bekleyen metnin zorla sentezlenmesi için geçmesi gereken süre (ms).
-  - `min_chars`: Bir ses akışının başlaması için geçmesi gereken minimum karakter sayısı.
-- **system**:
-  - `voxcpm_gpu_ids`: Modele ayrılacak GPU ID'leri dizisi (Örn: `[0]` veya birden fazla GPU için `[0, 1]`).
-  - `use_torch_compile`: PyTorch derlemesini aktifleştirerek performansı artırır (GPU gerektirir).
-  - `piper_fallback_enabled`: CPU fallback motorunun aktif olup olmayacağı (`true`/`false`).
-  - `piper_fallback_queue_threshold`: GPU kuyruğunda kaç istek biriktiğinde sistemin otomatik olarak Piper CPU motoruna döneceği (Varsayılan: `10`).
-- **api**: API güvenliği için CORS ayarlarını (`cors_allowed_origins`, `cors_allowed_methods`, `cors_allowed_headers`) barındırır.
+Ayırabildiğim zaman sınırlı. Elimden geldiğince ilgileniyorum, ama tek başıma
+büyütebileceğim bir iş değil. Burada sizin yardımınıza ihtiyacım var: bir hata
+bulduysanız, eksik gördüğünüz bir yer varsa ya da "şurası daha iyi olabilirdi"
+dediyseniz, o katkıyı bekliyorum. Küçük bir PR, açılmış bir issue, hatta bir öneri bile
+projeyi ileri taşıyor.
 
----
-
-## 🏃‍♂️ Sistemi Başlatma ve Kullanım
-
-### Sunucuyu Başlatmak
-Tüm kurulum ve yapılandırma adımlarından sonra servisi ayağa kaldırmak için ana dizindeyken şu komutu çalıştırın:
-```bash
-python -m service.main
-```
-Bu komut, yapılandırmanıza göre modelleri belleğe yükleyecek (GPU ve CPU) ve FastAPI & WebSocket sunucusunu başlatacaktır.
-
-### İstemci (Client) ile Bağlantı Kurmak
-Servis ayağa kalktıktan sonra, WebSocket üzerinden asenkron metin gönderip, ses verisini stream (akış) olarak alabilirsiniz. Proje dizininde veya farklı bir projede örnek bir bağlantı için `client.py` dosyasını inceleyebilirsiniz.
-
-Sistem, istemci ile **Multiplexed WebSockets** üzerinden konuşur:
-1. **Text Frame (JSON):** Kontrol mesajları, metadata, bağlantı durumu ve cümle sonu bildirimleri.
-2. **Binary Frame (Raw Bytes):** Saf, Little-Endian formatta `PCM16` ses verisi taşır. Bu sayede iOS, Android, .NET veya Java gibi farklı istemciler bu byteları alıp doğrudan donanım ses kuyruğuna yazabilirler.
-
----
-
-## 🏗️ Mimari Geliştirmelerimiz ve Teknik Detaylar
-
-Sistem mimarisi, kurumsal standartlarda OOP ve SOLID prensiplerine sadık kalınarak tasarlanmıştır. Geliştirdiğimiz özgün mimarinin detayları şunlardır:
-
-### 1. Bellek ve O(1) İşlem Optimizasyonları
-- **RingBuffer (Dairesel Tampon):** `streaming.py` içindeki RingBuffer dinamik genişleme yapmaz, bellek adreslemesi baştan sabit yapılır. Head/Tail işaretçileri kaydırılarak tam olarak **O(1)** hızında bellek erişimi sunar.
-- **Vektörize AudioFormat Dönüşümü:** Ses genlik sınırlama (clipping) ve `PCM16 Little-Endian` dönüşümleri, ağır Python `for` döngülerinden arındırılarak NumPy tabanlı SIMD operasyonları ile donanım hızında (**O(N)** optimum) gerçekleştirilir.
-- **TextBuffer Yönetimi:** LLM (büyük dil modeli) çıktılarındaki token birleştirmeleri yavaş string eklemeleri yerine, liste yönetimi ile O(1) zamanında ele alınır. Sadece cümleler hazır olduğunda düzenli ifadelerden (regex) geçirilir.
-
-### 2. Çoklu GPU Havuzu (Resource Pooling)
-5'e kadar (veya daha fazla) GPU'yu yatay olarak yönetebilen **Object Pool Pattern** (`VoxCPMEnginePool`) uygulanmıştır. Gelen bir istek asenkron bir kuyruk (`asyncio.Queue`) üzerinden bekletilmeden boştaki uygun GPU'ya kilitlenir. Hiçbir istek birbirini bloke etmez.
-
-### 3. Dinamik Fallback Mekanizması
-Diyelim ki sistemde yüksek bir yük var, GPU'ların tamamı meşgul ve kuyruk konfigürasyondaki eşik değerini (`piper_fallback_queue_threshold` = 10) geçti. Bu durumda sistem, istek reddetmek yerine talebi eşzamanlı olarak CPU üzerinde çalışan ultra hızlı **Piper TTS** motoruna yönlendirir. İstemci bu yönlendirmeyi hissetmez ve sunucu her koşulda "hizmet kesintisi" (Denial of Service) olmadan çalışmaya devam eder.
-
----
-
-## 🔮 Yol Haritası ve Gelecek Geliştirmeler
-
-Projeyi daha da ileriye taşımak için mimarimize eklenecek sıradaki özellikler şunlardır:
-
-1. **Kümelenmiş ve Dağıtık Yapı (Kubernetes & Redis):**
-   - GPU havuzunun tek bir makineyle kısıtlanmasını önlemek için pod bazlı HPA (Horizontal Pod Autoscaling) entegrasyonuna geçiş.
-   - İstek yönetiminin ve GPU kilit mekanizmalarının Redis Pub/Sub üzerinden sunucu bağımsız (stateless) bir şekilde dağıtılması.
-2. **Akıllı Ses Önbellekleme (Semantic Audio Caching):**
-   - Çok sık sorulan veya üretilen standart cümlelerin, vektörel karşılıkları (embeddings) bulunarak Redis/NoSQL üzerinde ses paketleri olarak saklanması. İstek geldiğinde aynı cümlenin yapay zeka tarafından işlenmeden **O(1)** hızla istemciye gönderilmesi.
-3. **Alternatif İletişim Protokolleri (gRPC & HTTP/2):**
-   - WebSocket akışına alternatif olarak, özellikle kurumsal .NET ve Java mikroservis mimarileriyle %100 uyumlu ve daha hafif (low overhead) iletişim kurmak için **Protocol Buffers (gRPC)** adaptörünün sisteme eklenmesi.
-4. **Gelişmiş Kimlik Doğrulama ve Güvenlik:**
-   - İstek kısıtlamaları (rate-limiting) ve OAuth2/JWT gibi kurumsal yetkilendirme standartlarının direkt Dependency Injection katmanına API Gateway entegrasyonu olarak kazandırılması.
-
-> [!NOTE]
-> **Geliştirme Notu**
-> En yeni özellikler ve devam eden geliştirmeler için **`dev`** branch'ini inceleyebilirsiniz. Deneysel değişiklikler ve yeni özellikler önce burada geliştirilip test edildikten sonra **`main`** branch'ine aktarılır.
+Türk yazılım topluluğuna beraber bir şey bırakalım istiyorum. Proje işinize yaradıysa,
+küçük de olsa desteğinizi esirgemeyin.

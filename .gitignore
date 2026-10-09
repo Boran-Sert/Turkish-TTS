@@ -30,3 +30,14 @@ logs/
 # Local/OS files
 .DS_Store
 Thumbs.db
+
+# JetBrains
+.idea/
+
+# Test cache
+.pytest_cache/
+
+# Packaging
+*.egg-info/
+build/
+dist/

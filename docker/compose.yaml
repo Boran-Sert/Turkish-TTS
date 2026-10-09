@@ -1,0 +1,25 @@
+services:
+  tts:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      TTS_LOG_LEVEL: INFO
+      TTS_MODEL_MODEL_PATH: Trendyol/Trendyol-TTS
+      TTS_STREAMING_CHUNK_DURATION_MS: "200"
+      TTS_SYSTEM_VOXCPM_GPU_IDS: "[0]"
+    volumes:
+      # Ağırlıklar konteyner yeniden kurulsa da burada kalır.
+      - hf-cache:/cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  hf-cache:

@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turkish-tts"
+version = "0.0.0"
+description = "Türkçe için VoxCPM2 tabanlı metin-konuşma servisi ve kütüphanesi"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "src/turkish_tts/_vendor/voxcpm/LICENSE"]
+authors = [{ name = "Boran Sert" }]
+keywords = ["tts", "turkish", "türkçe", "voxcpm", "speech-synthesis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: Turkish",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch>=2.5.0",
+    "torchaudio>=2.5.0",
+    "transformers>=4.36.2",
+    "safetensors",
+    "huggingface-hub",
+    "einops",
+    "librosa",
+    "numpy",
+    "scipy",
+    "pydantic>=2",
+    "tqdm",
+    "fastapi",
+    "uvicorn",
+    "websockets",
+]
+
+[project.optional-dependencies]
+finetune = [
+    "datasets>=3,<4",
+    "argbind",
+    "pyyaml",
+    "tensorboardX",
+]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[project.scripts]
+turkish-tts-server = "turkish_tts.api.app:main"
+turkish-tts-fetch = "turkish_tts.weights:main"
+
+[project.urls]
+Homepage = "https://github.com/Boran-Sert/Turkish-TTS"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["turkish_tts*"]
+
+[tool.setuptools.package-data]
+"turkish_tts.api" = ["static/*.html"]
+"turkish_tts._vendor.voxcpm" = ["LICENSE", "README.upstream.md", "conf/**/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["src/turkish_tts/__init__.py:__version__"]
+build_command = "python -m pip install build && python -m build"
+commit_message = "chore(release): {version} [skip ci]"
+tag_format = "v{version}"
+major_on_zero = true
+allow_zero_version = true
+
+[tool.semantic_release.branches.main]
+match = "main"
+
+[tool.semantic_release.commit_parser_options]
+# feat! / BREAKING CHANGE -> major, feat -> minor, asagidakiler -> patch.
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "docs", "refactor", "style", "build"]
+other_allowed_tags = ["chore", "ci", "test"]
+
+[tool.semantic_release.changelog]
+exclude_commit_patterns = ['^chore\(release\):']

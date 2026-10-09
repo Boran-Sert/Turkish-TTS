@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # Testler GPU ve model agirligi gerektirmiyor; CPU torch yeterli ve cok daha kucuk.
+      - name: Install torch (CPU)
+        run: uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package
+        run: uv pip install -e ".[dev,finetune]"
+
+      - name: Run tests
+        run: uv run pytest tests/ -q
+
+  release-config:
+    name: Validate release rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      # Araci izole calistiriyoruz; paketin kendi bagimliliklari kirlenmesin.
+      - name: semantic-release understands the configuration
+        run: |
+          uv tool run --from 'python-semantic-release>=10,<11' semantic-release --noop version --print
+
+  wheel:
+    name: Build and import wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build distributions
+        run: uv build
+
+      # Editable kurulum paket kesfini gercek wheel gibi sinamiyor; burada siniyoruz.
+      - name: Install the wheel in a clean environment
+        run: |
+          uv venv /tmp/wheelcheck
+          VIRTUAL_ENV=/tmp/wheelcheck uv pip install torch torchaudio \
+            --index-url https://download.pytorch.org/whl/cpu
+          VIRTUAL_ENV=/tmp/wheelcheck uv pip install dist/*.whl
+
+      # Cekirdek kurulum egitim bagimliliklarini istemeden calismali.
+      - name: Check the base install
+        run: |
+          VIRTUAL_ENV=/tmp/wheelcheck uv run python -c "
+          import turkish_tts
+          from turkish_tts import TurkishTTS
+          import importlib.resources as r
+          assert (r.files('turkish_tts.api') / 'static/index.html').is_file()
+          assert TurkishTTS.list_voices() == [] or TurkishTTS.list_voices()
+          print('base ok', turkish_tts.__version__)
+          "
+
+      - name: Check the finetune extra
+        run: |
+          VIRTUAL_ENV=/tmp/wheelcheck uv pip install "$(ls dist/*.whl)[finetune]"
+          VIRTUAL_ENV=/tmp/wheelcheck uv run python -c "
+          import turkish_tts._vendor.voxcpm.training.validate as v
+          from turkish_tts.finetune import FinetuneConfig
+          assert FinetuneConfig(dataset='d', output_dir='o').lora_rank == 64
+          print('finetune ok', v.validate_manifest.__name__)
+          "
+
+      - name: Check metadata
+        run: |
+          uv tool run twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

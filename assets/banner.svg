@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 240" width="880" height="240" role="img" aria-label="Turkish TTS — Türkçe metin-konuşma">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1120"/>
+      <stop offset="1" stop-color="#111C33"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="0.55" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="0.5" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.18" cy="0.5" r="0.75">
+      <stop offset="0" stop-color="#3B82F6" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="frame">
+      <rect width="880" height="240" rx="24"/>
+    </clipPath>
+    <clipPath id="tileRound">
+      <rect x="56" y="56" width="104" height="104" rx="26"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="880" height="240" fill="url(#bg)"/>
+    <rect width="880" height="240" fill="url(#glow)"/>
+
+    <g opacity="0.16" fill="none" stroke="url(#wave)" stroke-width="2" stroke-linecap="round">
+      <path d="M470 196 q 18 -26 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0 t 36 0"/>
+      <path d="M470 214 q 24 -16 48 0 t 48 0 t 48 0 t 48 0 t 48 0 t 48 0"/>
+    </g>
+
+    <g clip-path="url(#tileRound)">
+      <rect x="56" y="56" width="104" height="104" fill="url(#tile)"/>
+      <rect x="56" y="56" width="104" height="54" fill="#ffffff" opacity="0.16"/>
+      <circle cx="146" cy="74" r="26" fill="#ffffff" opacity="0.12"/>
+      <circle cx="156" cy="66" r="22" fill="url(#tile)" opacity="0.6"/>
+    </g>
+    <g fill="#ffffff">
+      <rect x="74" y="103" width="7" height="10" rx="3.5" opacity="0.70"/>
+      <rect x="86" y="95" width="7" height="26" rx="3.5" opacity="0.85"/>
+      <rect x="98" y="83" width="7" height="50" rx="3.5"/>
+      <rect x="110" y="77" width="7" height="62" rx="3.5"/>
+      <rect x="122" y="90" width="7" height="36" rx="3.5" opacity="0.85"/>
+      <rect x="134" y="100" width="7" height="16" rx="3.5" opacity="0.70"/>
+    </g>
+
+    <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+      <text x="196" y="105" font-size="46" font-weight="700" fill="#F8FAFC" letter-spacing="-0.5">Turkish TTS</text>
+      <text x="198" y="136" font-size="18" font-weight="500" fill="#94A3B8">Türkçe metin-konuşma · VoxCPM2 + Trendyol ağırlıkları</text>
+
+      <g font-size="13" font-weight="600">
+        <rect x="197" y="158" width="92" height="28" rx="14" fill="#1E293B" stroke="#334155"/>
+        <text x="243" y="176" fill="#E2E8F0" text-anchor="middle">48 kHz</text>
+
+        <rect x="297" y="158" width="124" height="28" rx="14" fill="#1E293B" stroke="#334155"/>
+        <text x="359" y="176" fill="#E2E8F0" text-anchor="middle">ses klonlama</text>
+
+        <rect x="429" y="158" width="118" height="28" rx="14" fill="#1E293B" stroke="#334155"/>
+        <text x="488" y="176" fill="#E2E8F0" text-anchor="middle">canlı akış</text>
+
+        <rect x="555" y="158" width="140" height="28" rx="14" fill="#1E293B" stroke="#334155"/>
+        <text x="625" y="176" fill="#E2E8F0" text-anchor="middle">LoRA ince ayar</text>
+      </g>
+    </g>
+
+    <rect width="880" height="240" rx="24" fill="none" stroke="#1E293B" stroke-width="2"/>
+  </g>
+</svg>

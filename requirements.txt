@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-websockets
-jinja2
-numpy
-scipy
-sounddevice
-piper-tts
-huggingface_hub
