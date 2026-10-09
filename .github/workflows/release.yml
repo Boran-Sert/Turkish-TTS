@@ -47,10 +47,15 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout the release branch
+        uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
-          ref: ${{ github.sha }}
+
+      # Dal is akisi sirasinda guncellenmis olabilir.
+      - name: Pin to the triggering commit
+        run: git reset --hard ${{ github.sha }}
 
       - name: Semantic version release
         id: release
