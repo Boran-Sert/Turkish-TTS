@@ -10,7 +10,7 @@ from .finetune import finetune as _finetune
 from .settings import Settings, load_settings, settings
 from .voices import Voice, VoiceNotFound, list_voices, resolve_voice, voices_dir
 
-__version__ = "0.0.0"
+__version__ = "1.0.0"
 
 BYTES_PER_SAMPLE = 2
 CHANNELS = 1
